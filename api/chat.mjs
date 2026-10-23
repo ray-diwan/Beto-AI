@@ -1,4 +1,5 @@
 import { normalize } from '../lib/normalize.mjs';
+import { workflowRequest } from '../lib/request.mjs';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -22,13 +23,15 @@ export default async function handler(req, res) {
   let body;
   try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; }
   catch { return fail(400, 'INVALID_INPUT', 'Mensagem em formato inválido.'); }
-  if (!body || typeof body.message !== 'string' || !body.message.trim() || body.message.length > 6000 || !/^[a-zA-Z0-9-]{8,80}$/.test(body.sessionId || '')) return fail(400, 'INVALID_INPUT', 'Mensagem ou sessão inválida.');
+  let payload;
+  try { payload = workflowRequest(body); }
+  catch (error) { return fail(400, 'INVALID_INPUT', error.message); }
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (process.env.N8N_WEBHOOK_TOKEN?.trim()) headers.Authorization = `Bearer ${process.env.N8N_WEBHOOK_TOKEN.trim()}`;
     const upstream = await fetch(url, {
       method: 'POST', headers,
-      body: JSON.stringify({ chatInput: body.message.trim(), sessionId: body.sessionId, action: 'sendMessage' }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(50000), redirect: 'error'
     });
     if (upstream.status === 404) return fail(502, 'N8N_NOT_FOUND', 'n8n retornou 404: confira a Production URL, o método POST e se o workflow está ativo/publicado.');
@@ -50,3 +53,4 @@ export default async function handler(req, res) {
     return fail(502, 'N8N_UNREACHABLE', 'Não foi possível conectar ao n8n. Confira o endereço HTTPS e a disponibilidade do serviço.');
   }
 }
+
