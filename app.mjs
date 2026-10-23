@@ -1,4 +1,5 @@
 import { normalize } from './lib/normalize.mjs';
+import { renderGraphExplorer } from './lib/charts.mjs';
 const $ = s => document.querySelector(s);
 const messages = $('#messages');
 let sessionId = crypto.randomUUID();
@@ -61,6 +62,7 @@ function workflowForm(spec,state) {
 function resultVisual(result) {
   const box=element('div','result-visual'),v=result?.visual;
   if(!v)return box;
+  if(Array.isArray(v.graficos))box.append(renderGraphExplorer(v.graficos));
   if(Array.isArray(v.barras))for(const bar of v.barras.slice(0,12))if(Number.isFinite(bar.valor))box.append(element('p','result-value',`${bar.rotulo}: ${currency(bar.valor)}`));
   if(Array.isArray(v.destaques))for(const d of v.destaques.slice(0,12))box.append(element('p','result-value',`${d.rotulo}: ${d.valor}`));
   if(v.pessoas)box.append(element('p','result-value',`${v.pessoas.titulo || ''}: ${v.pessoas.ganham} de 10 ${v.pessoas.ganhaTxt || ''}.`));
@@ -101,7 +103,7 @@ function addMessage(role,data,demo=false){
   $('#welcome')?.remove();const box=element('article',`msg ${role}`);box.append(element('div','who',role==='user'?'VOCÊ':'BETO'));
   if(demo)box.append(element('span','demo-label','DEMONSTRAÇÃO LOCAL · sem conexão com IA'));
   box.append(richText(data.mensagem));
-  if(data.grafico)box.append(drawChart(data.grafico));
+  if(data.grafico&&!data.resultado?.visual?.graficos?.length)box.append(drawChart(data.grafico));
   else if(data.grafico_url){const img=element('img','chart-img');img.src=data.grafico_url;img.alt='Gráfico da simulação';img.loading='lazy';img.referrerPolicy='no-referrer';img.addEventListener('error',()=>img.replaceWith(element('p','','Não foi possível carregar o gráfico.')));box.append(img);}
   if(data.metricas&&Object.keys(data.metricas).length){const metrics=element('div','metrics');for(const [k,v]of Object.entries(data.metricas)){const m=element('div','metric',k==='saldo_final_medio'?'Saldo final médio das trajetórias':'Valor esperado por aposta');m.append(element('strong','',k==='saldo_final_medio'?currency(v):`${v.toLocaleString('pt-BR')}%`));metrics.append(m);}box.append(metrics);}
   if(role==='assistant'&&!demo){
