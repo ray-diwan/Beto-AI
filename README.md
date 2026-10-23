@@ -1,40 +1,35 @@
 # Beto AI
 
-Interface de chat educativa do grupo E4, Projeto III. Site estático com rota de servidor compatível com Vercel, sem dependências de build. Nome proposto do repositório: **Beto-AI**. Na Vercel use **beto-ai** (nome normalizado em minúsculas); a disponibilidade do domínio só é confirmada na criação do projeto.
+Chat educativo do grupo E4, Projeto III. O site roda na Vercel e usa o workflow n8n para conteúdo, sugestões e cálculos. Sem dependências de build.
 
-## Rodar
+## Colocar em funcionamento
 
-Node.js 22 ou superior: `node scripts/dev.mjs`. Abra http://127.0.0.1:3000. Use “Experimentar simulação” para testar o gráfico local, explicitamente identificado como demonstração. `node --test tests/*.test.mjs` executa as verificações.
+1. Na [configuração da Vercel](https://vercel.com/beto-ia/beto-ai/settings/environment-variables), adicione a variável **de servidor** `N8N_WEBHOOK_URL` com o valor `https://grupoe4.app.n8n.cloud/webhook/bets-assistente`. Marque **Production** e **Preview** se quiser testar a prévia do GitHub.
+2. Se o webhook usar Header Auth, configure o cabeçalho `Authorization` com `Bearer SEU_TOKEN` no n8n e o mesmo token em `N8N_WEBHOOK_TOKEN` na Vercel. Sem autenticação, deixe a variável ausente. Nunca coloque credenciais no código ou no chat.
+3. Integre a alteração na branch principal e aguarde o deploy. Se configurar variáveis depois do deploy, faça **Redeploy**; elas só passam a valer em novas publicações.
+4. Abra https://beto-ai.vercel.app/ e clique em **Explorar temas**. Escolha um tema, envie uma pergunta e use uma sugestão abaixo da resposta. Em **Simulação**, abra uma calculadora, preencha os valores e confirme o resultado.
+5. Para as novas simulações de banca e comparação, publique no n8n o workflow `Assistente de bets - simulacoes v2.json` entregue separadamente. Confira as credenciais e a tabela de secções. Não publique duas versões no mesmo caminho. O workflow `Pagina do Beto` só é necessário para a página hospedada pelo próprio n8n; o site Vercel não depende dele.
 
-## Conectar ao n8n
+Verificação em 23/10/2026: o webhook respondeu HTTP 200 ao menu inicial, com texto, temas e contexto. O site publicado respondeu HTTP 503 com `N8N_NOT_CONFIGURED`. Isso indica ausência da variável no deploy consultado. Essa verificação não confirma que a versão v2 esteja publicada nem que todas as credenciais de IA estejam válidas.
 
-Na Vercel, configure as variáveis de ambiente **de servidor**:
+## Como funciona
 
-- `N8N_WEBHOOK_URL`: endpoint HTTPS de produção do seu n8n.
-- `N8N_WEBHOOK_TOKEN`: opcional; enviado em `Authorization: Bearer ...`. Configure autenticação de cabeçalho correspondente no Webhook do n8n.
-
-Faça novo deploy depois de alterar variáveis. Para desenvolvimento local: `node --env-file=.env scripts/dev.mjs`.
-
-A rota `/api/chat` envia `{ chatInput, sessionId, action: "sendMessage" }`. Use `sessionId` como chave da memória do agente e `chatInput` como mensagem. No n8n: **Webhook POST → AI Agent → montagem da resposta → Respond to Webhook**, com resposta JSON e sem streaming nesta versão. A resposta deve retornar na mesma requisição (timeout de 50 segundos no proxy).
-
-O resultado do Code Tool não aparece automaticamente na saída final do AI Agent. Configure o workflow para preservar os campos calculados e entregá-los ao Respond to Webhook. Uma opção é habilitar os passos intermediários do agente e extrair a observação da chamada do simulador em um Code após o agente; escolha a chamada correta, valide o JSON e combine os dados com o texto final. O nome exato dos campos depende da versão do n8n. Não peça ao modelo para reescrever milhares de pontos: preserve os dados originais da ferramenta. Envie apenas o resumo necessário ao modelo.
-
-Formato preferido:
+O navegador chama `/api/chat`, que valida o pedido e encaminha JSON ao webhook. URL e token ficam no servidor. O protocolo segue os JSONs do projeto:
 
 ```json
-{"mensagem":"Sua explicação", "grafico":{"type":"line","data":{"labels":[0,1,2],"datasets":[{"label":"Sim 1","data":[1000,950,997.5],"borderColor":"#3498db"}]}}, "saldo_final_medio":997.5,"valor_esperado_por_aposta_pct":-2.5}
+{"acao":"mensagem","texto":"Como funcionam as odds?","sessionId":"sessao-12345","contexto":{"secaoAtual":"bets"}}
 ```
 
-Compatibilidade com o exemplo original: `{ "grafico_url": "https://quickchart.io/chart?...", "saldo_final_medio": 1000, "valor_esperado_por_aposta_pct": -2.5 }`. Se a URL contiver configuração JSON em `c`, o site extrai os dados e desenha o gráfico interativo localmente. Para outras URLs HTTPS, exibe a imagem. Também aceita JSON como string em `output`, array de um item e envelopes `json`. URLs mencionadas apenas em texto livre não são convertidas automaticamente.
+As outras ações são `secao` (com `secao`), `form` e `calc` (com `tipo` e `dados`). `contexto` retorna do n8n e acompanha a próxima interação. Mensagens têm limite de 500 caracteres, conforme o roteador. Os campos legados `chatInput` e `action: sendMessage` também são enviados nas mensagens.
 
-O gráfico local usa SVG, com consulta por cursor e tabela acessível. Não executa scripts, callbacks nem HTML retornados pelo modelo. A conversa fica somente em memória na aba; o n8n pode persistir a memória se configurado.
+A resposta aceita `texto`, `acoes`, `acoesTitulo`, `botoes`, `formulario`, `contexto` e `resultado.visual.grafico`. As sugestões são as próximas ações escolhidas pelo workflow. Formulários enviam os dados para cálculo no n8n. O gráfico v2 é desenhado localmente, com consulta por cursor e tabela. Outros resultados numéricos aparecem em cartões.
 
-## Simulador
+Respostas antigas com `output`, `mensagem`, `grafico`, `grafico_url`, envelopes `resposta`/`json` e arrays de um item continuam aceitas. O texto suporta negrito sem interpretar HTML ou scripts. Opções de respostas anteriores ficam desabilitadas após uma nova resposta; em caso de falha, é possível tentar novamente. Conversa e contexto ficam na memória da aba; **Nova conversa** os reinicia. **Experimentar simulação** usa dados locais explicitamente identificados como demonstração.
 
-`n8n/simulador-code-tool.js` contém a versão corrigida do exemplo: valida parâmetros e preserva o saldo quando ele não permite outra aposta. De 1 a 8 trajetórias ilustrativas, até 5.000 rodadas; não é estimativa robusta de risco. Retorna `grafico` diretamente para evitar URLs extensas. Compare investimentos apenas com mesmo capital/aportes e horizonte explicitamente definidos.
+O webhook deve responder JSON na mesma requisição usando **Respond to Webhook**, como no fluxo fornecido. Timeout: 50 segundos. Consulte a [documentação do n8n](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/) e a [documentação de variáveis da Vercel](https://vercel.com/docs/environment-variables).
 
-## GitHub e Vercel
+## Desenvolvimento e testes
 
-Crie o repositório **Beto-AI**, envie estes arquivos e importe-o na Vercel como **beto-ai**. Framework preset: Other; sem comando de build; diretório de saída: raiz. Não publique `.env` nem exportações n8n com segredos. O JSON de workflow pode ser versionado após revisão, mas exige n8n para executar; esta aplicação não é um runtime de workflows.
+Node.js 22 ou superior. Copie `.env.example` para `.env`, ajuste se necessário e execute `node --env-file=.env scripts/dev.mjs`. Abra http://127.0.0.1:3000. Execute `npm test` para verificar ações, contexto, sugestões, formulários, gráficos, respostas antigas e erros do proxy.
 
-Antes de liberar para muitos usuários, configure proteção contra abuso e limites na entrada, além das cotas do n8n e do provedor de IA. A aplicação não inclui login ou armazenamento de histórico no navegador.
+Na Vercel: framework **Other**, sem build, raiz como diretório do projeto. Não publique `.env` nem exportações com segredos. As calculadoras existentes do n8n não tiveram suas hipóteses ou regras tributárias revisadas nesta integração.

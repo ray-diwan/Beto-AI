@@ -3,9 +3,62 @@ const $ = s => document.querySelector(s);
 const messages = $('#messages');
 let sessionId = crypto.randomUUID();
 let busy = false;
+let contexto = {};
 const currency = x => x.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 function element(tag, cls, text) { const e = document.createElement(tag); if(cls)e.className=cls; if(text!==undefined)e.textContent=text; return e; }
 function svgElement(tag, attrs) { const e=document.createElementNS('http://www.w3.org/2000/svg',tag); for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v); return e; }
+function richText(text) {
+  const box=element('div','text');
+  // Support emphasis without interpreting HTML, links or scripts from the model.
+  for(const [i,part] of String(text || '').replace(/\\n/g,'\n').split('**').entries()) box.append(i%2?element('strong','',part):document.createTextNode(part));
+  return box;
+}
+function chips(title, items, makePayload, state) {
+  const group=element('div','workflow chips');
+  if(title)group.append(element('p','chip-title',title));
+  for(const item of items.slice(0,20)) {
+    if(!item || typeof item!=='object')continue;
+    const button=element('button','chip',item.rotulo || item.titulo || 'Continuar');button.type='button';
+    button.addEventListener('click',()=>request(makePayload(item),button.textContent,state));group.append(button);
+  }
+  return group;
+}
+function workflowForm(spec,state) {
+  const form=element('form','workflow calculator');
+  form.append(element('h3','',spec.titulo || 'Confira os valores'));
+  const controls=[];
+  for(const field of spec.campos.slice(0,20)) {
+    if(!field || typeof field.nome!=='string')continue;
+    const label=element('label','field',field.rotulo || field.nome);
+    const input=element(field.tipo==='opcoes'?'select':'input');
+    if(field.tipo==='opcoes') {
+      input.append(new Option('Selecione…',''));
+      for(const option of (Array.isArray(field.opcoes)?field.opcoes:[]).slice(0,20))input.append(new Option(option.rotulo,option.valor));
+    } else {
+      input.type=field.tipo==='numero'?'number':'text';input.maxLength=500;
+      if(input.type==='number') {input.step='any';input.inputMode='decimal';if(Number.isFinite(field.min))input.min=field.min;if(Number.isFinite(field.max))input.max=field.max;}
+    }
+    input.value=field.valor ?? '';input.required=!!field.obrigatorio;input.placeholder=field.placeholder || '';
+    label.append(input);form.append(label);controls.push({field,input});
+  }
+  const error=element('p','form-error');error.setAttribute('role','alert');
+  const button=element('button','chip primary',spec.botao || 'Calcular');button.type='submit';form.append(error,button);
+  form.addEventListener('submit',event=>{
+    event.preventDefault();if(busy)return;
+    const dados=Object.fromEntries(controls.map(({field,input})=>[field.nome,input.value.trim()]));
+    if(dados.modeloProb==='informada' && !dados.probabilidade){error.textContent='Informe a chance hipotética de ganhar.';return;}
+    error.textContent='';request({acao:spec.acao || 'calc',tipo:spec.tipo,dados},spec.titulo || 'Calcular',state);
+  });
+  return form;
+}
+function resultVisual(result) {
+  const box=element('div','result-visual'),v=result?.visual;
+  if(!v)return box;
+  if(Array.isArray(v.barras))for(const bar of v.barras.slice(0,12))if(Number.isFinite(bar.valor))box.append(element('p','result-value',`${bar.rotulo}: ${currency(bar.valor)}`));
+  if(Array.isArray(v.destaques))for(const d of v.destaques.slice(0,12))box.append(element('p','result-value',`${d.rotulo}: ${d.valor}`));
+  if(v.pessoas)box.append(element('p','result-value',`${v.pessoas.titulo || ''}: ${v.pessoas.ganham} de 10 ${v.pessoas.ganhaTxt || ''}.`));
+  return box;
+}
 function drawChart(chart) {
   const wrap=element('div','chart-card');
   wrap.append(element('h3','','Evolução da banca'),element('small','','Passe o cursor sobre uma linha para consultar os valores.'));
@@ -40,20 +93,39 @@ function drawChart(chart) {
 function addMessage(role,data,demo=false){
   $('#welcome')?.remove();const box=element('article',`msg ${role}`);box.append(element('div','who',role==='user'?'VOCÊ':'BETO'));
   if(demo)box.append(element('span','demo-label','DEMONSTRAÇÃO LOCAL · sem conexão com IA'));
-  box.append(element('div','text',data.mensagem));
+  box.append(richText(data.mensagem));
   if(data.grafico)box.append(drawChart(data.grafico));
   else if(data.grafico_url){const img=element('img','chart-img');img.src=data.grafico_url;img.alt='Gráfico da simulação';img.loading='lazy';img.referrerPolicy='no-referrer';img.addEventListener('error',()=>img.replaceWith(element('p','','Não foi possível carregar o gráfico.')));box.append(img);}
   if(data.metricas&&Object.keys(data.metricas).length){const metrics=element('div','metrics');for(const [k,v]of Object.entries(data.metricas)){const m=element('div','metric',k==='saldo_final_medio'?'Saldo final médio das trajetórias':'Valor esperado por aposta');m.append(element('strong','',k==='saldo_final_medio'?currency(v):`${v.toLocaleString('pt-BR')}%`));metrics.append(m);}box.append(metrics);}
+  if(role==='assistant'&&!demo){
+    const state=data.contexto || contexto;
+    if(data.resultado)box.append(resultVisual(data.resultado));
+    if(Array.isArray(data.formulario?.campos))box.append(workflowForm(data.formulario,state));
+    if(Array.isArray(data.acoes))box.append(chips(data.acoesTitulo ?? 'Continue a conversa',data.acoes,a=>({acao:a.acao,secao:a.secao,tipo:a.tipo,dados:a.dados}),state));
+    if(Array.isArray(data.botoes))box.append(chips('Temas relacionados',data.botoes,b=>({acao:'secao',secao:b.id}),state));
+  }
   messages.append(box);messages.scrollTop=messages.scrollHeight;
 }
-async function send(text){if(busy||!text.trim())return;busy=true;$('#send').disabled=true;$('#status').textContent='Beto está pensando…';addMessage('user',{mensagem:text});$('#message').value='';
-  try{const response=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,sessionId}),signal:AbortSignal.timeout(58000)});const data=await response.json();if(!response.ok)throw new Error(data.error||'Falha na conexão.');addMessage('assistant',data);$('#status').textContent='';}
-  catch(e){$('#status').textContent=e.name==='TimeoutError'?'A resposta demorou demais. Tente novamente.':e.message;}
-  finally{busy=false;$('#send').disabled=false;$('#message').focus();}
+async function request(payload,label,state=contexto){
+  if(busy)return;busy=true;$('#send').disabled=true;$('#status').textContent='Beto está pensando…';
+  const controls=[...document.querySelectorAll('.workflow button,.workflow input,.workflow select')];
+  const previous=controls.map(control=>control.disabled);controls.forEach(control=>control.disabled=true);
+  if(label)addMessage('user',{mensagem:label});
+  $('#retry')?.remove();let success=false;
+  try{
+    const response=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,sessionId,contexto:state}),signal:AbortSignal.timeout(58000)});
+    const data=await response.json();if(!response.ok)throw new Error(data.error||'Falha na conexão.');
+    if(data.contexto)contexto=data.contexto;addMessage('assistant',data);$('#status').textContent='';success=true;
+  }catch(e){
+    $('#status').textContent=e.name==='TimeoutError'?'A resposta demorou demais. Tente novamente.':e.message;
+    const retry=element('button','chip','Tentar novamente');retry.id='retry';retry.type='button';retry.addEventListener('click',()=>request(payload,null,state));$('#status').append(retry);
+  }finally{if(!success)controls.forEach((control,i)=>control.disabled=previous[i]);busy=false;$('#send').disabled=false;$('#message').focus();}
 }
+function send(text){if(busy||!text.trim())return;$('#message').value='';return request({acao:'mensagem',texto:text},text);}
 $('#form').addEventListener('submit',e=>{e.preventDefault();send($('#message').value)});
 $('#message').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('#form').requestSubmit();}});
 document.querySelectorAll('[data-prompt]').forEach(b=>b.addEventListener('click',()=>send(b.dataset.prompt)));
+const topics=element('button','demo','Explorar temas');topics.type='button';topics.addEventListener('click',()=>request({acao:'secao',secao:'inicio'},'Explorar temas'));$('header').append(topics);
 $('#new').addEventListener('click',()=>{if(!busy)location.reload();});
 $('#demo').addEventListener('click',()=>{
   if(busy)return;const colors=['#298574','#c69446','#7c74a9','#5c8fb8','#b57372'];const datasets=[],finais=[];
