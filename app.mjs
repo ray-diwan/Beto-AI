@@ -1,4 +1,3 @@
-import { normalize } from './lib/normalize.mjs';
 import { renderGraphExplorer } from './lib/charts.mjs';
 const $ = s => document.querySelector(s);
 const messages = $('#messages');
@@ -34,6 +33,7 @@ function chips(title, items, makePayload, state) {
 function workflowForm(spec,state) {
   const form=element('form','workflow calculator');
   form.append(element('h3','',spec.titulo || 'Confira os valores'));
+  if(spec.tipo==='banca' || spec.tipo==='comparar_banca')form.append(element('p','graph-note','Ao executar, você terá gráficos de trajetórias, distribuição, risco, faixa de resultados, guardar ou aplicar, valor esperado, prêmio e lucro, sequências e dobrar após perder.'));
   const controls=[];
   for(const field of spec.campos.slice(0,20)) {
     if(!field || typeof field.nome!=='string')continue;
@@ -134,10 +134,7 @@ function send(text){if(busy||!text.trim())return;$('#message').value='';return r
 $('#form').addEventListener('submit',e=>{e.preventDefault();send($('#message').value)});
 $('#message').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('#form').requestSubmit();}});
 document.querySelectorAll('[data-prompt]').forEach(b=>b.addEventListener('click',()=>send(b.dataset.prompt)));
+document.querySelectorAll('[data-simulation]').forEach(b=>b.addEventListener('click',()=>request({acao:'form',tipo:'banca'},b.textContent.replace(/↗/g,'').trim())));
 const topics=element('button','demo','Explorar temas');topics.type='button';topics.addEventListener('click',()=>request({acao:'secao',secao:'inicio'},'Explorar temas'));$('header').append(topics);
 $('#new').addEventListener('click',()=>{if(!busy)location.reload();});
-$('#demo').addEventListener('click',()=>{
-  if(busy)return;const colors=['#298574','#c69446','#7c74a9','#5c8fb8','#b57372'];const datasets=[],finais=[];
-  for(let s=0;s<5;s++){let saldo=1000;const data=[saldo];for(let r=0;r<150;r++){if(saldo>=50)saldo+=Math.random()<.5?47.5:-50;data.push(saldo);}finais.push(saldo);datasets.push({label:`Simulação ${s+1}`,data,borderColor:colors[s]});}
-  addMessage('assistant',normalize({mensagem:'Exemplo: banca inicial de R$ 1.000, aposta fixa de R$ 50, odd de 1,95 e probabilidade hipotética de acerto de 50%, em 150 apostas. Estas cinco trajetórias ilustram a variação possível; são poucas para estimar o risco com precisão. O valor esperado por aposta é −2,5% (−R$ 1,25). Cada trajetória para de apostar se não houver saldo suficiente, preservando o valor restante.',grafico:{data:{labels:Array.from({length:151},(_,i)=>i),datasets}},saldo_final_medio:finais.reduce((a,b)=>a+b,0)/5,valor_esperado_por_aposta_pct:-2.5}),true);
-});
+$('#demo').addEventListener('click',()=>request({acao:'form',tipo:'banca'},'Explorar os gráficos da banca'));
