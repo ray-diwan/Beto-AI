@@ -116,7 +116,9 @@ function addMessage(role,data,demo=false){
   messages.append(box);messages.scrollTop=messages.scrollHeight;
 }
 async function request(payload,label,state=contexto){
-  if(busy)return;busy=true;$('#send').disabled=true;$('#status').textContent='Beto está pensando…';
+  if(busy)return;
+  const guide=$('.feature-guide');if(guide)guide.open=false;
+  busy=true;$('#send').disabled=true;$('#status').textContent='Beto está pensando…';
   const controls=[...document.querySelectorAll('.workflow button,.workflow input,.workflow select')];
   const previous=controls.map(control=>control.disabled);controls.forEach(control=>control.disabled=true);
   if(label)addMessage('user',{mensagem:label});
